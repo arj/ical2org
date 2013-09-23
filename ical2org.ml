@@ -1,25 +1,63 @@
 open Batteries
 
+type icaldate =
+  | Date of Netdate.t
+  | DateTime of Netdate.t
+
 type event = {
   summary : string option;
   description : string option;
-  dtstart : string option;
-  dtend : string option;
+  dtstart : icaldate option;
+  dtend : icaldate option;
   rrule : string option;
 }
 
 type events = event list
 
+let string_of_icaldate d = match d with
+  | Date(n) -> Netdate.format ~fmt:"%F" n
+  | DateTime(n) -> Netdate.format ~fmt:"%F %T" n
+
 let string_of_event ev =
   Printf.sprintf "%s: %s - %s"
     (BatOption.default "" ev.summary)
-    (BatOption.default "" ev.dtstart)
-    (BatOption.default "" ev.dtend)
+    (BatOption.map_default string_of_icaldate "" ev.dtstart)
+    (BatOption.map_default string_of_icaldate "" ev.dtend)
 
 type ical_field = Field of string * string
 
 let pr lst =
   print_endline @@ String.concat "," @@ BatList.map (uncurry @@ Printf.sprintf "(%s,%s)") lst
+
+let from_icaldate input : icaldate =
+  let v = ref input in
+  if BatString.exists !v ":" then
+    v := snd @@ BatString.split !v ":"
+  else
+    ();
+  let i = !v in
+  let create_netdate year month day hour minute second =
+    let res = {
+      Netdate.year = int_of_string year;
+      Netdate.month = int_of_string month;
+      Netdate.day = int_of_string day;
+      Netdate.hour = int_of_string hour;
+      Netdate.minute = int_of_string minute;
+      Netdate.second = int_of_string second;
+      Netdate.nanos = 0;
+      Netdate.zone = 0; (*TODO Extract Z or timezone *)
+      Netdate.week_day = -1;
+    } in
+      { res with Netdate.week_day = Netdate.week_day res }
+  in
+    try
+     BatScanf.sscanf i "%4s%2s%2sT%2s%2s%2s"
+       (fun y m d h n s -> DateTime(create_netdate y m d h n s))
+    with
+      | BatScanf.Scan_failure(_)
+      | End_of_file ->
+     BatScanf.sscanf i "%4s%2s%2s"
+       (fun y m d -> Date(create_netdate y m d "0" "0" "0"))
 
 (** Reades lines from an input channel and returns them in reverse order. *)
 let read_lines_rev i = 
@@ -39,7 +77,7 @@ let rec adjust_lines_rev lines = match lines with
   | [] -> []
   | x :: y :: xs ->
       if x.[0] = ' ' then
-        adjust_lines_rev @@ (y ^ BatString.trim x) :: xs
+        adjust_lines_rev @@ (y ^ BatString.lchop x) :: xs
       else
         x :: adjust_lines_rev (y :: xs)
   | x :: xs -> x :: adjust_lines_rev xs
@@ -70,8 +108,8 @@ let read_event lst =
   {
     summary = assoc_option "SUMMARY" lst;
     description = assoc_option "DESCRIPTION" lst;
-    dtstart  = assoc_option "DTSTART" lst;
-    dtend  = assoc_option "DTEND" lst;
+    dtstart  = BatOption.map from_icaldate @@ assoc_option "DTSTART" lst;
+    dtend  = BatOption.map from_icaldate @@ assoc_option "DTEND" lst;
     rrule = assoc_option "RRULE" lst;
   }
 
@@ -94,8 +132,6 @@ let read_ical (i : in_channel) =
   let lst = BatList.map convert_ical adj_lines in
   let events = read_events lst in
     print_endline @@ String.concat "\n" @@ BatList.map string_of_event events
-
-let date : Netdate.t = failwith "Test"
 
 let main () =
   let ical = read_ical @@ Pervasives.stdin in
