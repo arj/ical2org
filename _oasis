@@ -1,0 +1,13 @@
+OASISFormat: 0.3
+Name:        ical2org
+Version:     0.1
+Synopsis:    Converter from ical files to org-mode files.
+Authors:     Robert Jakob
+License:     GPL-3
+
+Executable ical2org
+  Path:       .
+  BuildTools: ocamlbuild
+  MainIs:     ical2org.ml
+  BuildDepends: batteries,netstring
+  
